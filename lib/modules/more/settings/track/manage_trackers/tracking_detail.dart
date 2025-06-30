@@ -1,3 +1,4 @@
+import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:isar/isar.dart';
 import 'package:mangayomi/main.dart';
@@ -30,25 +31,74 @@ class _TrackingDetailState extends State<TrackingDetail>
   @override
   Widget build(BuildContext context) {
     final l10n = l10nLocalizations(context)!;
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+    final trackerName = widget.trackerPref.syncId == -1
+        ? 'Local'
+        : trackInfos(widget.trackerPref.syncId!).$2;
+    
     return DefaultTabController(
       animationDuration: Duration.zero,
       length: 2,
       child: Scaffold(
+        backgroundColor: isDark ? Colors.grey.shade900 : Colors.grey.shade50,
         appBar: AppBar(
           elevation: 0,
           backgroundColor: Colors.transparent,
-          title: Text(
-            widget.trackerPref.syncId == -1
-                ? 'Local'
-                : trackInfos(widget.trackerPref.syncId!).$2,
+          flexibleSpace: Container(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [
+                  theme.primaryColor.withValues(alpha: 0.8),
+                  theme.primaryColor.withValues(alpha: 0.4),
+                ],
+              ),
+            ),
           ),
-          bottom: TabBar(
-            indicatorSize: TabBarIndicatorSize.tab,
-            controller: _tabBarController,
-            tabs: [
-              Tab(text: l10n.manga),
-              Tab(text: l10n.anime),
-            ],
+          title: TweenAnimationBuilder(
+            duration: const Duration(milliseconds: 600),
+            tween: Tween<double>(begin: 0.0, end: 1.0),
+            builder: (context, double value, child) {
+              return Opacity(
+                opacity: value,
+                child: Transform.translate(
+                  offset: Offset(0, 20 * (1 - value)),
+                  child: Text(
+                    trackerName,
+                    style: const TextStyle(
+                      fontSize: 24,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.white,
+                    ),
+                  ),
+                ),
+              );
+            },
+          ),
+          bottom: PreferredSize(
+            preferredSize: const Size.fromHeight(56.0),
+            child: Container(
+              decoration: BoxDecoration(
+                color: (isDark ? Colors.grey.shade900 : Colors.white).withValues(alpha: 0.9),
+                boxShadow: [
+                  BoxShadow(
+                    color: (isDark ? Colors.black : Colors.grey).withValues(alpha: 0.1),
+                    blurRadius: 4,
+                    offset: const Offset(0, 2),
+                  ),
+                ],
+              ),
+              child: TabBar(
+                indicatorSize: TabBarIndicatorSize.tab,
+                controller: _tabBarController,
+                tabs: [
+                  Tab(text: l10n.manga),
+                  Tab(text: l10n.anime),
+                ],
+              ),
+            ),
           ),
         ),
         body: TabBarView(
@@ -98,15 +148,86 @@ class TrackingTab extends StatelessWidget {
               final track = trackRes.firstWhere(
                 (element) => element.mediaId == mediaId,
               );
-              return ExpansionTile(
-                title: Text(track.title!),
-                children: [
-                  TrackingWidget(
-                    itemType: itemType,
-                    syncId: syncId,
-                    mediaId: mediaId!,
+              return Container(
+                margin: const EdgeInsets.symmetric(vertical: 4),
+                decoration: BoxDecoration(
+                  color: Theme.of(context).brightness == Brightness.dark
+                      ? Colors.grey.shade900.withValues(alpha: 0.7)
+                      : Colors.white.withValues(alpha: 0.9),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color: Theme.of(context).primaryColor.withValues(alpha: 0.1),
+                    width: 1,
                   ),
-                ],
+                  boxShadow: [
+                    BoxShadow(
+                      color: (Theme.of(context).brightness == Brightness.dark
+                              ? Colors.black
+                              : Colors.grey)
+                          .withValues(alpha: 0.1),
+                      blurRadius: 6,
+                      offset: const Offset(0, 2),
+                    ),
+                  ],
+                ),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(12),
+                  child: BackdropFilter(
+                    filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+                    child: ExpansionTile(
+                      backgroundColor: Colors.transparent,
+                      collapsedBackgroundColor: Colors.transparent,
+                      title: Row(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.all(8),
+                            decoration: BoxDecoration(
+                              gradient: LinearGradient(
+                                begin: Alignment.topLeft,
+                                end: Alignment.bottomRight,
+                                colors: [
+                                  Theme.of(context).primaryColor.withValues(alpha: 0.2),
+                                  Theme.of(context).primaryColor.withValues(alpha: 0.1),
+                                ],
+                              ),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Icon(
+                              itemType == ItemType.manga 
+                                  ? Icons.book_rounded 
+                                  : Icons.movie_rounded,
+                              color: Theme.of(context).primaryColor,
+                              size: 20,
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Text(
+                              track.title!,
+                              style: TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.w500,
+                                color: Theme.of(context).brightness == Brightness.dark 
+                                    ? Colors.white 
+                                    : Colors.black87,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      children: [
+                        Padding(
+                          padding: const EdgeInsets.all(8.0),
+                          child: TrackingWidget(
+                            itemType: itemType,
+                            syncId: syncId,
+                            mediaId: mediaId!,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
               );
             },
             separatorBuilder: (_, index) {
@@ -159,12 +280,25 @@ class TrackingWidget extends StatelessWidget {
             shrinkWrap: true,
             itemBuilder: (context, index) {
               final track = trackRes[index];
-              return TrackerWidget(
-                mangaId: track.mangaId!,
-                syncId: track.syncId!,
-                trackRes: track,
-                itemType: itemType,
-                hide: true,
+              return Container(
+                margin: const EdgeInsets.symmetric(vertical: 4),
+                decoration: BoxDecoration(
+                  color: Theme.of(context).brightness == Brightness.dark
+                      ? Colors.grey.shade800.withValues(alpha: 0.5)
+                      : Colors.grey.shade50,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(
+                    color: Theme.of(context).dividerColor.withValues(alpha: 0.3),
+                    width: 1,
+                  ),
+                ),
+                child: TrackerWidget(
+                  mangaId: track.mangaId!,
+                  syncId: track.syncId!,
+                  trackRes: track,
+                  itemType: itemType,
+                  hide: true,
+                ),
               );
             },
             separatorBuilder: (_, index) {

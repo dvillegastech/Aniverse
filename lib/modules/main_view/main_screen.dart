@@ -1,9 +1,9 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:google_fonts/google_fonts.dart';
 import 'package:isar/isar.dart';
 import 'package:mangayomi/eval/model/m_bridge.dart';
 import 'package:mangayomi/main.dart';
@@ -299,30 +299,21 @@ class _MainScreenState extends ConsumerState<MainScreen> {
       destinations[dest.indexOf("/MangaLibrary")] = NavigationRailDestination(
         selectedIcon: const Icon(Icons.collections_bookmark),
         icon: const Icon(Icons.collections_bookmark_outlined),
-        label: Padding(
-          padding: const EdgeInsets.only(top: 5),
-          child: Text(l10n.manga),
-        ),
+        label: Text(l10n.manga),
       );
     }
     if (dest.contains("/AnimeLibrary")) {
       destinations[dest.indexOf("/AnimeLibrary")] = NavigationRailDestination(
         selectedIcon: const Icon(Icons.video_collection),
         icon: const Icon(Icons.video_collection_outlined),
-        label: Padding(
-          padding: const EdgeInsets.only(top: 5),
-          child: Text(l10n.anime),
-        ),
+        label: Text(l10n.anime),
       );
     }
     if (dest.contains("/NovelLibrary")) {
       destinations[dest.indexOf("/NovelLibrary")] = NavigationRailDestination(
         selectedIcon: const Icon(Icons.local_library),
         icon: const Icon(Icons.local_library_outlined),
-        label: Padding(
-          padding: const EdgeInsets.only(top: 5),
-          child: Text(l10n.novel),
-        ),
+        label: Text(l10n.novel),
       );
     }
     if (dest.contains("/updates")) {
@@ -335,15 +326,12 @@ class _MainScreenState extends ConsumerState<MainScreen> {
           icon: const Icon(Icons.new_releases_outlined),
           ref: ref,
         ),
-        label: Padding(
-          padding: const EdgeInsets.only(top: 5),
-          child: Text(
-            getHyphenatedUpdatesLabel(
-              ref.watch(l10nLocaleStateProvider).languageCode,
-              l10n.updates,
-            ),
-            textAlign: TextAlign.center,
+        label: Text(
+          getHyphenatedUpdatesLabel(
+            ref.watch(l10nLocaleStateProvider).languageCode,
+            l10n.updates,
           ),
+          textAlign: TextAlign.center,
         ),
       );
     }
@@ -351,10 +339,7 @@ class _MainScreenState extends ConsumerState<MainScreen> {
       destinations[dest.indexOf("/history")] = NavigationRailDestination(
         selectedIcon: const Icon(Icons.history),
         icon: const Icon(Icons.history_outlined),
-        label: Padding(
-          padding: const EdgeInsets.only(top: 5),
-          child: Text(l10n.history),
-        ),
+        label: Text(l10n.history),
       );
     }
     if (dest.contains("/browse")) {
@@ -367,30 +352,21 @@ class _MainScreenState extends ConsumerState<MainScreen> {
           icon: const Icon(Icons.explore_outlined),
           ref: ref,
         ),
-        label: Padding(
-          padding: const EdgeInsets.only(top: 5),
-          child: Text(l10n.browse),
-        ),
+        label: Text(l10n.browse),
       );
     }
     if (dest.contains("/more")) {
       destinations[dest.indexOf("/more")] = NavigationRailDestination(
         selectedIcon: const Icon(Icons.more_horiz),
         icon: const Icon(Icons.more_horiz_outlined),
-        label: Padding(
-          padding: const EdgeInsets.only(top: 5),
-          child: Text(l10n.more),
-        ),
+        label: Text(l10n.more),
       );
     }
     if (dest.contains("/trackerLibrary")) {
       destinations[dest.indexOf("/trackerLibrary")] = NavigationRailDestination(
         selectedIcon: const Icon(Icons.account_tree),
         icon: const Icon(Icons.account_tree_outlined),
-        label: Padding(
-          padding: const EdgeInsets.only(top: 5),
-          child: Text(l10n.tracking),
-        ),
+        label: Text(l10n.tracking),
       );
     }
 
@@ -512,30 +488,50 @@ class _IncognitoModeBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Material(
+      elevation: incognitoMode ? 2 : 0,
+      shadowColor: Colors.black26,
       child: AnimatedContainer(
         height: incognitoMode
             ? Platform.isAndroid || Platform.isIOS
-                  ? MediaQuery.of(context).padding.top * 2
-                  : 50
+                  ? MediaQuery.of(context).padding.top + 32
+                  : 40
             : 0,
-        curve: Curves.easeIn,
-        duration: const Duration(milliseconds: 150),
-        color: context.primaryColor,
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.end,
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Padding(
-              padding: const EdgeInsets.all(8.0),
-              child: Text(
-                l10n.incognito_mode,
-                style: TextStyle(
+        curve: Curves.easeInOut,
+        duration: const Duration(milliseconds: 200),
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [
+              context.primaryColor.withOpacity(0.95),
+              context.primaryColor,
+            ],
+          ),
+        ),
+        child: SafeArea(
+          bottom: false,
+          child: Center(
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Icon(
+                  Icons.visibility_off_rounded,
                   color: Colors.white,
-                  fontFamily: GoogleFonts.aBeeZee().fontFamily,
+                  size: 18,
                 ),
-              ),
+                const SizedBox(width: 8),
+                Text(
+                  l10n.incognito_mode,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w500,
+                    letterSpacing: 0.5,
+                  ),
+                ),
+              ],
             ),
-          ],
+          ),
         ),
       ),
     );
@@ -578,23 +574,61 @@ class _TabletLayout extends StatelessWidget {
           width: _getNavigationRailWidth(isLongPressed, location),
           child: Stack(
             children: [
-              NavigationRailTheme(
-                data: NavigationRailThemeData(
-                  indicatorShape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(30),
-                  ),
+              Container(
+                decoration: BoxDecoration(
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.08),
+                      blurRadius: 15,
+                      offset: const Offset(5, 0),
+                    ),
+                  ],
                 ),
-                child: NavigationRail(
-                  labelType: NavigationRailLabelType.all,
-                  useIndicator: true,
-                  destinations: destinations,
-                  selectedIndex:
-                      (currentIndex >= 0 && currentIndex < destinations.length)
-                      ? currentIndex
-                      : 0,
-                  onDestinationSelected: (newIndex) {
-                    route.go(dest[newIndex]);
-                  },
+                child: ClipRRect(
+                  child: BackdropFilter(
+                    filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+                    child: NavigationRailTheme(
+                      data: NavigationRailThemeData(
+                        backgroundColor: Theme.of(context).brightness == Brightness.dark
+                            ? Colors.black.withOpacity(0.7)
+                            : Colors.white.withOpacity(0.85),
+                        indicatorShape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                        indicatorColor: Theme.of(context).primaryColor.withOpacity(0.2),
+                        selectedIconTheme: IconThemeData(
+                          color: Theme.of(context).primaryColor,
+                          size: 26,
+                        ),
+                        unselectedIconTheme: IconThemeData(
+                          color: Theme.of(context).iconTheme.color?.withOpacity(0.7),
+                          size: 24,
+                        ),
+                        selectedLabelTextStyle: TextStyle(
+                          color: Theme.of(context).primaryColor,
+                          fontWeight: FontWeight.w600,
+                          fontSize: 13,
+                        ),
+                        unselectedLabelTextStyle: TextStyle(
+                          color: Theme.of(context).textTheme.bodyMedium?.color?.withOpacity(0.8),
+                          fontSize: 12,
+                        ),
+                      ),
+                      child: NavigationRail(
+                        labelType: NavigationRailLabelType.all,
+                        useIndicator: true,
+                        minWidth: 72,
+                        destinations: destinations,
+                        selectedIndex:
+                            (currentIndex >= 0 && currentIndex < destinations.length)
+                            ? currentIndex
+                            : 0,
+                        onDestinationSelected: (newIndex) {
+                          route.go(dest[newIndex]);
+                        },
+                      ),
+                    ),
+                  ),
                 ),
               ),
             ],
@@ -651,22 +685,70 @@ class _MobileBottomNavigation extends StatelessWidget {
       duration: const Duration(milliseconds: 0),
       width: context.width(1),
       height: _getBottomNavigationHeight(isLongPressed, location),
-      child: NavigationBarTheme(
-        data: NavigationBarThemeData(
-          labelTextStyle: const WidgetStatePropertyAll(
-            TextStyle(overflow: TextOverflow.ellipsis),
-          ),
-          indicatorShape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(30),
-          ),
+      child: Container(
+        decoration: BoxDecoration(
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.1),
+              blurRadius: 20,
+              offset: const Offset(0, -5),
+            ),
+          ],
         ),
-        child: NavigationBar(
-          animationDuration: const Duration(milliseconds: 500),
-          selectedIndex: currentIndex,
-          destinations: buildNavigationWidgetsMobile(ref, dest, context),
-          onDestinationSelected: (newIndex) {
-            onDestinationSelected(dest[newIndex]);
-          },
+        child: ClipRRect(
+          child: BackdropFilter(
+            filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+            child: NavigationBarTheme(
+              data: NavigationBarThemeData(
+                height: 70,
+                elevation: 0,
+                backgroundColor: Theme.of(context).brightness == Brightness.dark
+                    ? Colors.black.withOpacity(0.7)
+                    : Colors.white.withOpacity(0.8),
+                surfaceTintColor: Colors.transparent,
+                indicatorColor: Theme.of(context).primaryColor.withOpacity(0.2),
+                indicatorShape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                labelTextStyle: WidgetStateProperty.resolveWith((states) {
+                  if (states.contains(WidgetState.selected)) {
+                    return TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: Theme.of(context).primaryColor,
+                      overflow: TextOverflow.ellipsis,
+                    );
+                  }
+                  return TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w500,
+                    color: Theme.of(context).textTheme.bodyMedium?.color?.withOpacity(0.8),
+                    overflow: TextOverflow.ellipsis,
+                  );
+                }),
+                iconTheme: WidgetStateProperty.resolveWith((states) {
+                  if (states.contains(WidgetState.selected)) {
+                    return IconThemeData(
+                      color: Theme.of(context).primaryColor,
+                      size: 26,
+                    );
+                  }
+                  return IconThemeData(
+                    color: Theme.of(context).iconTheme.color?.withOpacity(0.7),
+                    size: 24,
+                  );
+                }),
+              ),
+              child: NavigationBar(
+                animationDuration: const Duration(milliseconds: 300),
+                selectedIndex: currentIndex,
+                destinations: buildNavigationWidgetsMobile(ref, dest, context),
+                onDestinationSelected: (newIndex) {
+                  onDestinationSelected(dest[newIndex]);
+                },
+              ),
+            ),
+          ),
         ),
       ),
     );
@@ -738,7 +820,20 @@ class _ExtensionBadgeWidget extends ConsumerWidget {
           return icon;
         }
 
-        return Badge(label: Text("${entries.length}"), child: icon);
+        return Badge(
+          backgroundColor: Theme.of(context).colorScheme.error,
+          textColor: Colors.white,
+          smallSize: 8,
+          largeSize: 16,
+          label: Text(
+            "${entries.length}",
+            style: const TextStyle(
+              fontSize: 10,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          child: icon,
+        );
       },
     );
   }
@@ -793,7 +888,20 @@ class _UpdatesBadgeWidget extends ConsumerWidget {
           return icon;
         }
 
-        return Badge(label: Text("${entries.length}"), child: icon);
+        return Badge(
+          backgroundColor: Theme.of(context).primaryColor,
+          textColor: Colors.white,
+          smallSize: 8,
+          largeSize: 16,
+          label: Text(
+            "${entries.length}",
+            style: const TextStyle(
+              fontSize: 10,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          child: icon,
+        );
       },
     );
   }

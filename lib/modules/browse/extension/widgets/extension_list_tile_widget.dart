@@ -118,38 +118,55 @@ class _ExtensionListTileWidgetState
               ),
       ),
       title: Text(widget.source.name!),
-      subtitle: Row(
-        crossAxisAlignment: CrossAxisAlignment.end,
+      subtitle: Wrap(
+        spacing: 4,
+        runSpacing: 2,
+        crossAxisAlignment: WrapCrossAlignment.center,
         children: [
           Text(
             completeLanguageName(widget.source.lang!.toLowerCase()),
             style: const TextStyle(fontWeight: FontWeight.w300, fontSize: 12),
           ),
-          const SizedBox(width: 4),
+          const Text(
+            "•",
+            style: TextStyle(fontWeight: FontWeight.w300, fontSize: 12),
+          ),
           Text(
             widget.source.version!,
             style: const TextStyle(fontWeight: FontWeight.w300, fontSize: 12),
           ),
-          if (widget.source.repo?.name != null)
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 4),
-              child: Text(
-                "- ${widget.source.repo!.name!}",
-                style: TextStyle(fontSize: 12),
-              ),
+          if (widget.source.repo?.name != null) ...[
+            const Text(
+              "•",
+              style: TextStyle(fontWeight: FontWeight.w300, fontSize: 12),
             ),
-          if (widget.source.isObsolete ?? false)
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 4),
+            Text(
+              widget.source.repo!.name!,
+              style: const TextStyle(fontSize: 12),
+              overflow: TextOverflow.ellipsis,
+            ),
+          ],
+          if (widget.source.isObsolete ?? false) ...[
+            const Text(
+              "•",
+              style: TextStyle(fontWeight: FontWeight.w300, fontSize: 12),
+            ),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+              decoration: BoxDecoration(
+                color: context.primaryColor.withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(4),
+              ),
               child: Text(
                 "OBSOLETE",
                 style: TextStyle(
                   color: context.primaryColor,
                   fontWeight: FontWeight.bold,
-                  fontSize: 12,
+                  fontSize: 10,
                 ),
               ),
             ),
+          ],
         ],
       ),
       trailing: _buildTrailingButton(context, buttonLabel),
