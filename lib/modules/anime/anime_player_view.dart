@@ -13,6 +13,7 @@ import 'package:mangayomi/models/chapter.dart';
 import 'package:mangayomi/models/manga.dart';
 import 'package:mangayomi/models/video.dart' as vid;
 import 'package:mangayomi/modules/anime/providers/anime_player_controller_provider.dart';
+import 'package:mangayomi/modules/anime/widgets/airplay_button.dart';
 import 'package:mangayomi/modules/anime/widgets/aniskip_countdown_btn.dart';
 import 'package:mangayomi/modules/anime/widgets/desktop.dart';
 import 'package:mangayomi/modules/anime/widgets/play_or_pause_button.dart';
@@ -40,6 +41,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as path;
 import 'package:share_plus/share_plus.dart';
 import 'package:super_sliver_list/super_sliver_list.dart';
+import 'package:mangayomi/services/airplay_service.dart';
 
 bool _isDesktop = Platform.isMacOS || Platform.isLinux || Platform.isWindows;
 
@@ -215,6 +217,7 @@ class _AnimeStreamPageState extends riv.ConsumerState<AnimeStreamPage>
   final ValueNotifier<BoxFit> _fit = ValueNotifier(BoxFit.contain);
   final ValueNotifier<bool> _showAniSkipOpeningButton = ValueNotifier(false);
   final ValueNotifier<bool> _showAniSkipEndingButton = ValueNotifier(false);
+  final ValueNotifier<bool> _isAirPlayActive = ValueNotifier(false);
   Results? _openingResult;
   Results? _endingResult;
   bool _hasOpeningSkip = false;
@@ -285,6 +288,9 @@ class _AnimeStreamPageState extends riv.ConsumerState<AnimeStreamPage>
         }
       });
 
+  // Add AirPlay connection state listener
+  late StreamSubscription<AirPlayConnectionState>? _airPlayConnectionSub;
+
   void pushToNewEpisode(BuildContext context, Chapter episode) {
     widget.desktopFullScreenPlayer.call(true);
     if (context.mounted) {
@@ -319,6 +325,23 @@ class _AnimeStreamPageState extends riv.ConsumerState<AnimeStreamPage>
     _currentPositionSub;
     _currentTotalDurationSub;
     _completed;
+    
+    // Listen to AirPlay connection changes
+    _airPlayConnectionSub = AirPlayService.instance.connectionStream.listen((connectionState) {
+      debugPrint('AirPlay connection state changed: ${connectionState.isActive}');
+      if (mounted) {
+        if (connectionState.isActive && !_isAirPlayActive.value) {
+          // AirPlay just became active
+          debugPrint('AirPlay became active, starting streaming...');
+          _startAirPlayStreaming();
+        } else if (!connectionState.isActive && _isAirPlayActive.value) {
+          // AirPlay just became inactive
+          debugPrint('AirPlay became inactive, resuming local playback...');
+          _resumeLocalPlayback();
+        }
+      }
+    });
+    
     _loadAndroidFont().then((_) {
       _player.open(
         Media(
@@ -399,6 +422,7 @@ class _AnimeStreamPageState extends riv.ConsumerState<AnimeStreamPage>
     _currentPositionSub.cancel();
     _currentTotalDurationSub.cancel();
     _completed.cancel();
+    _airPlayConnectionSub?.cancel();
     if (!_isDesktop) {
       _setLandscapeMode(false);
     }
@@ -1019,6 +1043,13 @@ class _AnimeStreamPageState extends riv.ConsumerState<AnimeStreamPage>
             _changeFitLabel(ref);
           },
         ),
+        // AirPlay button (iOS only)
+        AirPlayButton(
+          onAirPlayStateChanged: () {
+            // This is now handled by the stream listener
+            debugPrint('AirPlay button state changed');
+          },
+        ),
         if (_isDesktop)
           CustomMaterialDesktopFullscreenButton(controller: _controller)
         else
@@ -1217,7 +1248,99 @@ class _AnimeStreamPageState extends riv.ConsumerState<AnimeStreamPage>
     _resize(fit);
     return Stack(
       children: [
-        Video(
+        ValueListenableBuilder<bool>(
+          valueListenable: _isAirPlayActive,
+          builder: (context, isAirPlayActive, child) {
+            if (isAirPlayActive) {
+              // Show AirPlay indicator when streaming
+              return Stack(
+                children: [
+                  Container(
+                    color: Colors.black,
+                    child: Center(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          const Icon(
+                            Icons.cast_connected,
+                            size: 80,
+                            color: Colors.white,
+                          ),
+                          const SizedBox(height: 20),
+                          Text(
+                            'Transmitiendo a AirPlay',
+                            style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                              color: Colors.white,
+                            ),
+                          ),
+                          const SizedBox(height: 10),
+                          Text(
+                            'El video se está reproduciendo en tu Apple TV',
+                            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                              color: Colors.white70,
+                            ),
+                          ),
+                          const SizedBox(height: 40),
+                          ElevatedButton.icon(
+                            onPressed: () {
+                              // Stop AirPlay and return to local playback
+                              _resumeLocalPlayback();
+                            },
+                            icon: const Icon(Icons.stop),
+                            label: const Text('Detener AirPlay'),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.red,
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 20,
+                                vertical: 12,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 20),
+                          TextButton.icon(
+                            onPressed: () {
+                              // Go back to main app (close player)
+                              Navigator.of(context).pop();
+                            },
+                            icon: const Icon(Icons.arrow_back, color: Colors.white70),
+                            label: const Text(
+                              'Volver al menú',
+                              style: TextStyle(color: Colors.white70),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  // Floating close button in top-right corner
+                  Positioned(
+                    top: MediaQuery.of(context).padding.top + 10,
+                    right: 16,
+                    child: Container(
+                      decoration: BoxDecoration(
+                        color: Colors.black54,
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: IconButton(
+                        onPressed: () {
+                          _resumeLocalPlayback();
+                        },
+                        icon: const Icon(
+                          Icons.close,
+                          color: Colors.white,
+                          size: 24,
+                        ),
+                        tooltip: 'Detener AirPlay',
+                      ),
+                    ),
+                  ),
+                ],
+              );
+            }
+            return child!;
+          },
+          child: Video(
           subtitleViewConfiguration: SubtitleViewConfiguration(
             visible: false,
             style: subtileTextStyle(ref),
@@ -1259,6 +1382,7 @@ class _AnimeStreamPageState extends riv.ConsumerState<AnimeStreamPage>
           width: context.width(1),
           height: context.height(1),
           resumeUponEnteringForegroundMode: true,
+        ),
         ),
         Positioned(
           right: 0,
@@ -1542,6 +1666,147 @@ class _AnimeStreamPageState extends riv.ConsumerState<AnimeStreamPage>
       },
       icon: Icon(Icons.adaptive.share, color: Colors.white),
     );
+  }
+
+  /// Handle AirPlay state changes
+  void _handleAirPlayStateChange() {
+    final airPlayState = ref.read(airPlayStateProvider);
+
+    if (airPlayState.isActive) {
+      // AirPlay is now active - start streaming to AirPlay device
+      _startAirPlayStreaming();
+    } else {
+      // AirPlay disconnected - resume local playback
+      _resumeLocalPlayback();
+    }
+  }
+
+  /// Start streaming current video to AirPlay device
+  Future<void> _startAirPlayStreaming() async {
+    try {
+      // Get the original video URL from the current video preferences
+      final currentVideo = _video.value;
+      if (currentVideo == null || currentVideo.videoTrack == null) {
+        debugPrint('No video selected for AirPlay');
+        return;
+      }
+      
+      // For AirPlay, we need to use the original URL, not the media_kit processed one
+      String? videoUrl;
+      
+      // First, try to get the URL from the current player
+      final currentMediaUrl = _player.state.playlist.medias.firstOrNull?.uri;
+      debugPrint('Current media URL from player: $currentMediaUrl');
+      
+      // Check if we have the original video URL from the videos list
+      if (widget.videos.isNotEmpty && !widget.isLocal) {
+        // Find the video with matching quality
+        final matchingVideo = widget.videos.firstWhere(
+          (v) => v.quality == currentVideo.videoTrack!.title,
+          orElse: () => widget.videos.first,
+        );
+        videoUrl = matchingVideo.url; // Use url instead of originalUrl
+        debugPrint('Video URL from videos list: $videoUrl');
+      } else if (currentMediaUrl != null) {
+        // Use the current playing URL
+        videoUrl = currentMediaUrl;
+      } else {
+        // For local files or if no match found, use the track ID
+        videoUrl = currentVideo.videoTrack!.id;
+      }
+      
+      if (videoUrl == null) {
+        debugPrint('No valid URL found for AirPlay');
+        return;
+      }
+      
+      debugPrint('Starting AirPlay with URL: $videoUrl');
+      debugPrint('Headers: ${currentVideo.headers}');
+      
+      // Get current playback position before pausing
+      final currentPos = _currentPosition.value;
+      debugPrint('Current position: $currentPos');
+      
+      // Pause media_kit player
+      _player.pause();
+
+      // Start AirPlay with the original video URL
+      final airPlayService = AirPlayService.instance;
+      final success = await airPlayService.startStreaming(
+        videoUrl,
+        headers: currentVideo.headers,
+      );
+
+      debugPrint('AirPlay startStreaming result: $success');
+
+      if (success) {
+        // Wait a bit for AirPlay to initialize
+        await Future.delayed(const Duration(seconds: 1));
+        
+        // Sync current position
+        await airPlayService.syncPosition(currentPos);
+        
+        // Set playback rate if different from 1.0
+        if (_playbackSpeed.value != 1.0) {
+          await airPlayService.setPlaybackRate(_playbackSpeed.value);
+        }
+
+        debugPrint('AirPlay streaming started successfully');
+        
+        // Show a toast notification
+        botToast('Transmitiendo a AirPlay', second: 2);
+        
+        // Update state to show AirPlay is active
+        setState(() {
+          _isAirPlayActive.value = true;
+        });
+      } else {
+        // If AirPlay failed, resume local playback
+        _player.play();
+        botToast('Error al iniciar AirPlay', second: 2);
+      }
+    } catch (e) {
+      debugPrint('Error starting AirPlay streaming: $e');
+      debugPrint('Stack trace: ${StackTrace.current}');
+      // Resume local playback on error
+      _player.play();
+      botToast('Error de AirPlay: ${e.toString()}', second: 3);
+    }
+  }
+
+  /// Resume local playback when AirPlay disconnects
+  Future<void> _resumeLocalPlayback() async {
+    try {
+      // Get the last position from AirPlay before stopping
+      final airPlayService = AirPlayService.instance;
+      final lastPosition = await airPlayService.getPlaybackPosition();
+      
+      // Stop AirPlay streaming
+      await airPlayService.stopStreaming();
+      
+      // Wait for AirPlay to fully disconnect
+      await Future.delayed(const Duration(milliseconds: 500));
+      
+      // Seek to the last position from AirPlay
+      if (lastPosition.inMilliseconds > 0) {
+        await _player.seek(lastPosition);
+      }
+      
+      // Resume local player
+      _player.play();
+      
+      // Update state to show AirPlay is no longer active
+      setState(() {
+        _isAirPlayActive.value = false;
+      });
+      
+      debugPrint('Resumed local playback at position: $lastPosition');
+      botToast('Reproducción local reanudada', second: 2);
+    } catch (e) {
+      debugPrint('Error resuming local playback: $e');
+      // Try to play anyway
+      _player.play();
+    }
   }
 
   @override

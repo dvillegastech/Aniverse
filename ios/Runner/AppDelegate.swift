@@ -6,6 +6,8 @@ import GoogleSignIn
 
 @main
 @objc class AppDelegate: FlutterAppDelegate {
+  private var airPlayManager: AirPlayManager?
+
   override func application(
     _ application: UIApplication,
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
@@ -29,6 +31,15 @@ import GoogleSignIn
                       result(FlutterMethodNotImplemented)
                   }
               })
+
+    // Setup AirPlay channel
+    if #available(iOS 11.0, *) {
+      let airPlayChannel = FlutterMethodChannel(name: "com.dvillegas.mangayomi/airplay", binaryMessenger: controller.binaryMessenger)
+      airPlayManager = AirPlayManager(channel: airPlayChannel)
+      airPlayChannel.setMethodCallHandler { [weak self] (call, result) in
+        self?.airPlayManager?.handleMethodCall(call, result: result)
+      }
+    }
 
     // Configure Google Sign In BEFORE registering plugins
     do {
