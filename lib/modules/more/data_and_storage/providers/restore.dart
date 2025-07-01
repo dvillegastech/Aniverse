@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 import 'package:archive/archive_io.dart';
 import 'package:bot_toast/bot_toast.dart';
 import 'package:flutter/material.dart';
@@ -31,6 +32,8 @@ import 'package:mangayomi/router/router.dart';
 import 'package:protobuf/protobuf.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:mangayomi/services/cloud_backup/cloud_sync_manager.dart';
+import 'package:mangayomi/services/cloud_backup/cloud_backup_service.dart';
 part 'restore.g.dart';
 
 @riverpod
@@ -83,6 +86,134 @@ void showBotToast(String text) {
 }
 
 enum BackupType { unknown, mangayomi, mihon, aniyomi, kotatsu, neko }
+
+// Provider for automatic cloud restore
+Future<void> checkAndRestoreCloudBackup(WidgetRef ref, BuildContext context) async {
+  final cloudSyncManager = ref.read(cloudSyncManagerProvider);
+
+  try {
+    // Verify context is still valid before starting
+    if (!context.mounted) {
+      debugPrint('Context not mounted, skipping cloud backup check');
+      return;
+    }
+
+    // Check if a cloud provider is selected
+    final provider = await cloudSyncManager.getSelectedProvider();
+    if (provider == null) return;
+
+    final service = cloudSyncManager.getService(provider);
+    if (service == null || !service.isAvailable) return;
+
+    // Check if authenticated
+    if (!await service.isAuthenticated()) {
+      // Try to authenticate
+      if (!await service.authenticate()) {
+        return;
+      }
+    }
+
+    // Check context again after async operations
+    if (!context.mounted) {
+      debugPrint('Context no longer mounted after authentication, aborting cloud backup check');
+      return;
+    }
+
+    // Check for existing backups
+    final latestBackup = await service.getLatestBackup();
+    if (latestBackup == null) return;
+
+    // Final context check before showing dialog
+    if (!context.mounted) {
+      debugPrint('Context no longer mounted, cannot show backup dialog');
+      return;
+    }
+
+    // Show dialog to user
+    final shouldRestore = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Cloud Backup Found'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('A backup was found in your cloud account.'),
+            const SizedBox(height: 8),
+            Text('Backup date: ${latestBackup.createdAt.toLocal()}'),
+            Text('Size: ${(latestBackup.sizeInBytes / 1024 / 1024).toStringAsFixed(2)} MB'),
+            const SizedBox(height: 16),
+            const Text('Would you like to restore it?'),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('Skip'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text('Restore'),
+          ),
+        ],
+      ),
+    );
+
+    if (shouldRestore != true) return;
+
+    // Check context one more time before proceeding with restore
+    if (!context.mounted) {
+      debugPrint('Context no longer mounted, cannot proceed with restore');
+      return;
+    }
+
+    // Download and restore
+    showBotToast('Downloading cloud backup...');
+
+    final tempDir = Directory.systemTemp;
+    final tempFile = File('${tempDir.path}/aniverse_cloud_restore_${DateTime.now().millisecondsSinceEpoch}.backup');
+
+    await service.downloadBackup(
+      latestBackup.id,
+      tempFile.path,
+      onProgress: (progress) {
+        debugPrint('Download progress: ${(progress * 100).toStringAsFixed(1)}%');
+      },
+    );
+
+    // Final context check before restore
+    if (!context.mounted) {
+      debugPrint('Context no longer mounted, cleaning up downloaded file');
+      if (await tempFile.exists()) {
+        await tempFile.delete();
+      }
+      return;
+    }
+
+    // Restore the backup
+    ref.read(doRestoreProvider(
+      path: tempFile.path,
+      context: context,
+    ));
+
+    // Clean up temp file
+    if (await tempFile.exists()) {
+      await tempFile.delete();
+    }
+
+    // Enable auto sync after successful restore
+    await cloudSyncManager.setAutoSyncEnabled(true);
+    cloudSyncManager.startAutoSync();
+
+  } catch (e) {
+    debugPrint('Failed to check cloud backup: $e');
+    // Only show toast if context is still valid
+    if (context.mounted) {
+      showBotToast('Failed to check cloud backup');
+    }
+  }
+}
 
 BackupType checkBackupType(String path, Archive archive) {
   if (path.toLowerCase().contains("mangayomi") &&

@@ -1,4 +1,4 @@
-package com.kodjodevf.mangayomi
+package com.dvillegas.mangayomi
 
 import androidx.annotation.NonNull
 import libmtorrentserver.Libmtorrentserver
@@ -18,7 +18,7 @@ class MainActivity: FlutterActivity() {
         super.configureFlutterEngine(flutterEngine)
         MethodChannel(
             flutterEngine.dartExecutor.binaryMessenger,
-            "com.kodjodevf.mangayomi.libmtorrentserver",
+            "com.dvillegas.mangayomi.libmtorrentserver",
             StandardMethodCodec.INSTANCE,
             flutterEngine.dartExecutor.binaryMessenger.makeBackgroundTaskQueue()
         ).setMethodCallHandler { call, result ->
@@ -40,7 +40,7 @@ class MainActivity: FlutterActivity() {
 
         MethodChannel(
             flutterEngine.dartExecutor.binaryMessenger,
-            "com.kodjodevf.mangayomi.apk_install",
+            "com.dvillegas.mangayomi.apk_install",
             StandardMethodCodec.INSTANCE,
             flutterEngine.dartExecutor.binaryMessenger.makeBackgroundTaskQueue()
         ).setMethodCallHandler { call, result ->

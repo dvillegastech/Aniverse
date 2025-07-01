@@ -6,8 +6,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:mangayomi/modules/more/data_and_storage/providers/auto_backup.dart';
 import 'package:mangayomi/modules/more/data_and_storage/providers/backup.dart';
+import 'package:mangayomi/modules/more/data_and_storage/providers/restore.dart';
 import 'package:mangayomi/providers/l10n_providers.dart';
 import 'package:mangayomi/providers/storage_provider.dart';
+import 'package:mangayomi/services/cloud_backup/cloud_sync_manager.dart';
+import 'package:mangayomi/services/cloud_backup/cloud_backup_service.dart';
 
 class CreateBackup extends ConsumerStatefulWidget {
   const CreateBackup({super.key});
@@ -20,6 +23,26 @@ class _CreateBackupState extends ConsumerState<CreateBackup> {
   late final List<(String, int)> _libraryList = _getLibraryList(context);
   late final List<(String, int)> _settingsList = _getSettingsList(context);
   late final List<(String, int)> _extensionList = _getExtensionsList(context);
+  
+  CloudProvider? _selectedProvider;
+  bool _isAuthenticating = false;
+  bool _isSyncing = false;
+  
+  @override
+  void initState() {
+    super.initState();
+    _loadCloudSettings();
+  }
+  
+  Future<void> _loadCloudSettings() async {
+    final cloudSync = ref.read(cloudSyncManagerProvider);
+    final provider = await cloudSync.getSelectedProvider();
+    if (mounted) {
+      setState(() {
+        _selectedProvider = provider;
+      });
+    }
+  }
 
   void _set(int index, List<int> indexList) {
     if (indexList.contains(index)) {
@@ -294,6 +317,7 @@ class _CreateBackupState extends ConsumerState<CreateBackup> {
   
   Widget _buildCloudBackupSection(BuildContext context, bool isDark) {
     final theme = Theme.of(context);
+    
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -325,6 +349,13 @@ class _CreateBackupState extends ConsumerState<CreateBackup> {
                   color: theme.textTheme.headlineSmall?.color,
                 ),
               ),
+              const Spacer(),
+              if (_isSyncing)
+                const SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                ),
             ],
           ),
           const SizedBox(height: 16),
@@ -335,11 +366,10 @@ class _CreateBackupState extends ConsumerState<CreateBackup> {
                   context,
                   icon: Icons.cloud,
                   title: 'iCloud',
-                  subtitle: 'iOS only',
-                  enabled: Platform.isIOS,
-                  onTap: () {
-                    // TODO: Implement iCloud backup
-                  },
+                  subtitle: Platform.isIOS || Platform.isMacOS ? 'Available' : 'iOS/macOS only',
+                  enabled: Platform.isIOS || Platform.isMacOS,
+                  isSelected: _selectedProvider == CloudProvider.icloud,
+                  onTap: () => _handleCloudProviderSelection(CloudProvider.icloud),
                 ),
               ),
               const SizedBox(width: 12),
@@ -350,24 +380,689 @@ class _CreateBackupState extends ConsumerState<CreateBackup> {
                   title: 'Google Drive',
                   subtitle: 'All platforms',
                   enabled: true,
-                  onTap: () {
-                    // TODO: Implement Google Drive backup
-                  },
+                  isSelected: _selectedProvider == CloudProvider.googleDrive,
+                  onTap: () => _handleCloudProviderSelection(CloudProvider.googleDrive),
                 ),
               ),
             ],
           ),
+          if (_selectedProvider != null) ...[
+            const SizedBox(height: 16),
+            _buildSyncControls(context),
+          ],
         ],
       ),
     );
   }
   
+  Future<void> _handleCloudProviderSelection(CloudProvider provider) async {
+    if (_isAuthenticating) return;
+    
+    setState(() {
+      _isAuthenticating = true;
+    });
+    
+    try {
+      final cloudSync = ref.read(cloudSyncManagerProvider);
+      final service = cloudSync.getService(provider);
+      
+      if (service == null || !service.isAvailable) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('${service?.serviceName ?? provider.name} not available')),
+          );
+        }
+        return;
+      }
+      
+      // Check if already authenticated
+      bool isAuthenticated = await service.isAuthenticated();
+      
+      // If not authenticated, try to authenticate
+      if (!isAuthenticated) {
+        isAuthenticated = await service.authenticate();
+      }
+      
+      if (isAuthenticated) {
+        await cloudSync.setSelectedProvider(provider);
+        setState(() {
+          _selectedProvider = provider;
+        });
+        
+        // Auto sync is disabled to prevent Navigator disposal errors
+        await cloudSync.setAutoSyncEnabled(false);
+        
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Connected to ${service.serviceName}')),
+          );
+        }
+      } else {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Failed to authenticate with ${service.serviceName}')),
+          );
+        }
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isAuthenticating = false;
+        });
+      }
+    }
+  }
+  
+  Widget _buildSyncControls(BuildContext context) {
+    
+    return Column(
+      children: [
+        ListTile(
+          title: const Text('Auto Sync'),
+          subtitle: const Text('Auto sync is disabled for stability. Use manual sync instead.'),
+          trailing: const Icon(Icons.info_outline),
+          enabled: false,
+        ),
+        const SizedBox(height: 8),
+        Row(
+          children: [
+            Expanded(
+              child: FilledButton.tonal(
+                onPressed: _isSyncing ? null : _performManualSync,
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    if (_isSyncing)
+                      const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    else
+                      const Icon(Icons.sync, size: 20),
+                    const SizedBox(width: 8),
+                    const Text('Sync Now'),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: FilledButton.tonal(
+                onPressed: _disconnectCloud,
+                child: const Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(Icons.logout, size: 20),
+                    SizedBox(width: 8),
+                    Text('Disconnect'),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+
+        // Check for newer backups button
+        if (_selectedProvider != null) ...[
+          const SizedBox(height: 12),
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              onPressed: _checkForNewerBackups,
+              icon: const Icon(Icons.cloud_download, size: 20),
+              label: const Text('Check for Newer Backups'),
+            ),
+          ),
+          const SizedBox(height: 8),
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              onPressed: _performIntelligentSync,
+              icon: const Icon(Icons.sync_alt, size: 20),
+              label: const Text('Smart Sync (Bidirectional)'),
+            ),
+          ),
+        ],
+
+        // Sync status information
+        if (_selectedProvider != null) ...[
+          const SizedBox(height: 16),
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: Theme.of(context).colorScheme.surfaceContainerHighest.withValues(alpha: 0.3),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                color: Theme.of(context).colorScheme.outline.withValues(alpha: 0.2),
+              ),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Icon(
+                      Icons.info_outline,
+                      size: 20,
+                      color: Theme.of(context).colorScheme.primary,
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      'Sync Information',
+                      style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                        fontWeight: FontWeight.bold,
+                        color: Theme.of(context).colorScheme.primary,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                const Text(
+                  '• "Check for Newer Backups" - Manually check if there are newer backups in the cloud',
+                  style: TextStyle(fontSize: 13),
+                ),
+                const SizedBox(height: 4),
+                const Text(
+                  '• "Smart Sync" - Automatically detects changes and syncs bidirectionally',
+                  style: TextStyle(fontSize: 13),
+                ),
+                const SizedBox(height: 4),
+                const Text(
+                  '• The app automatically checks for newer backups on startup',
+                  style: TextStyle(fontSize: 13),
+                ),
+              ],
+            ),
+          ),
+        ],
+
+        // Diagnostic button for iCloud
+        if (_selectedProvider == CloudProvider.icloud) ...[
+          const SizedBox(height: 12),
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              onPressed: _runICloudDiagnostics,
+              icon: const Icon(Icons.bug_report, size: 20),
+              label: const Text('Run iCloud Diagnostics'),
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+  
+  Future<void> _performManualSync() async {
+    setState(() {
+      _isSyncing = true;
+    });
+    
+    try {
+      final cloudSync = ref.read(cloudSyncManagerProvider);
+      final result = await cloudSync.performSync(manual: true);
+      
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(result.message ?? 'Sync completed'),
+            backgroundColor: result.success ? Colors.green : Colors.red,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isSyncing = false;
+        });
+      }
+    }
+  }
+  
+  Future<void> _disconnectCloud() async {
+    final shouldDisconnect = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Disconnect Cloud Service'),
+        content: const Text('Are you sure you want to disconnect? Your backups will remain in the cloud.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Disconnect'),
+          ),
+        ],
+      ),
+    );
+    
+    if (shouldDisconnect == true) {
+      final cloudSync = ref.read(cloudSyncManagerProvider);
+      await cloudSync.setSelectedProvider(null);
+      await cloudSync.setAutoSyncEnabled(false);
+      cloudSync.stopAutoSync();
+      
+      setState(() {
+        _selectedProvider = null;
+      });
+      
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Cloud service disconnected')),
+        );
+      }
+    }
+  }
+
+  Future<void> _runICloudDiagnostics() async {
+    if (_selectedProvider != CloudProvider.icloud) return;
+
+    try {
+      final cloudSync = ref.read(cloudSyncManagerProvider);
+      final service = cloudSync.getService(CloudProvider.icloud);
+
+      if (service == null) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('iCloud service not available')),
+          );
+        }
+        return;
+      }
+
+      // Show loading dialog
+      if (mounted) {
+        showDialog(
+          context: context,
+          barrierDismissible: false,
+          builder: (context) => const AlertDialog(
+            content: Row(
+              children: [
+                CircularProgressIndicator(),
+                SizedBox(width: 16),
+                Text('Running diagnostics...'),
+              ],
+            ),
+          ),
+        );
+      }
+
+      // Run diagnostics
+      final isAuth = await service.isAuthenticated();
+      final backups = await service.listBackups();
+
+      if (mounted) {
+        Navigator.of(context).pop(); // Close loading dialog
+
+        showDialog(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: const Text('iCloud Diagnostics'),
+            content: SingleChildScrollView(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text('Authentication: ${isAuth ? "✅ Connected" : "❌ Not connected"}'),
+                  const SizedBox(height: 8),
+                  Text('Backups found: ${backups.length}'),
+                  const SizedBox(height: 8),
+                  const Text('Container ID: iCloud.com.dvillegas.mangayomi'),
+                  const SizedBox(height: 8),
+                  const Text('Backup folder: Documents/Aniverse/Backups'),
+                  const SizedBox(height: 8),
+                  const Text('Expected location in Files app: iCloud Drive > Aniverse > Documents > Aniverse > Backups'),
+                  const SizedBox(height: 16),
+                  const Text('Check the console logs for detailed diagnostic information.'),
+                  if (backups.isNotEmpty) ...[
+                    const SizedBox(height: 16),
+                    const Text('Recent backups:', style: TextStyle(fontWeight: FontWeight.bold)),
+                    ...backups.take(3).map((backup) => Padding(
+                      padding: const EdgeInsets.only(top: 4),
+                      child: Text('• ${backup.name}'),
+                    )),
+                  ],
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(),
+                child: const Text('Close'),
+              ),
+            ],
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        Navigator.of(context).pop(); // Close loading dialog if open
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Diagnostics failed: $e')),
+        );
+      }
+    }
+  }
+
+  Future<void> _checkForNewerBackups() async {
+    if (_selectedProvider == null) return;
+
+    try {
+      // Show loading dialog
+      if (mounted) {
+        showDialog(
+          context: context,
+          barrierDismissible: false,
+          builder: (context) => const AlertDialog(
+            content: Row(
+              children: [
+                CircularProgressIndicator(),
+                SizedBox(width: 16),
+                Text('Checking for newer backups...'),
+              ],
+            ),
+          ),
+        );
+      }
+
+      final cloudSync = ref.read(cloudSyncManagerProvider);
+      final newerBackup = await cloudSync.checkForNewerBackup();
+
+      if (mounted) {
+        Navigator.of(context).pop(); // Close loading dialog
+
+        if (newerBackup != null) {
+          // Show dialog with newer backup found
+          final shouldRestore = await showDialog<bool>(
+            context: context,
+            builder: (context) => AlertDialog(
+              title: const Text('Newer Backup Found'),
+              content: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Text('A newer backup was found in the cloud:'),
+                  const SizedBox(height: 12),
+                  Text('📁 ${newerBackup.name}', style: const TextStyle(fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 8),
+                  Text('📅 ${_formatDate(newerBackup.modifiedAt)}'),
+                  const SizedBox(height: 8),
+                  Text('📊 ${(newerBackup.sizeInBytes / 1024 / 1024).toStringAsFixed(2)} MB'),
+                  const SizedBox(height: 16),
+                  const Text('Would you like to restore this backup? This will replace your current data.'),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(context).pop(false),
+                  child: const Text('Cancel'),
+                ),
+                FilledButton(
+                  onPressed: () => Navigator.of(context).pop(true),
+                  child: const Text('Restore'),
+                ),
+              ],
+            ),
+          );
+
+          if (shouldRestore == true) {
+            await _restoreBackup(newerBackup);
+          }
+        } else {
+          // No newer backup found
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('✅ Your data is up to date. No newer backups found.'),
+              backgroundColor: Colors.green,
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        Navigator.of(context).pop(); // Close loading dialog if open
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to check for backups: $e')),
+        );
+      }
+    }
+  }
+
+  Future<void> _restoreBackup(CloudBackupInfo backup) async {
+    try {
+      // Show loading dialog
+      if (mounted) {
+        showDialog(
+          context: context,
+          barrierDismissible: false,
+          builder: (context) => AlertDialog(
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const CircularProgressIndicator(),
+                const SizedBox(height: 16),
+                Text('Restoring backup: ${backup.name}'),
+                const SizedBox(height: 8),
+                const Text('Please wait...'),
+              ],
+            ),
+          ),
+        );
+      }
+
+      final cloudSync = ref.read(cloudSyncManagerProvider);
+      final localPath = await cloudSync.downloadBackupForRestore(backup);
+
+      if (localPath != null && mounted) {
+        // Close loading dialog
+        Navigator.of(context).pop();
+
+        // Use the restore provider to restore the backup
+        ref.read(doRestoreProvider(path: localPath, context: context));
+
+        // Show success message
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('✅ Backup restored successfully!'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      } else {
+        if (mounted) {
+          Navigator.of(context).pop(); // Close loading dialog
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Failed to download backup for restoration')),
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        Navigator.of(context).pop(); // Close loading dialog if open
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to restore backup: $e')),
+        );
+      }
+    }
+  }
+
+  String _formatDate(DateTime date) {
+    return '${date.day}/${date.month}/${date.year} ${date.hour}:${date.minute.toString().padLeft(2, '0')}';
+  }
+
+  Future<void> _performIntelligentSync() async {
+    if (_selectedProvider == null) return;
+
+    try {
+      // Show loading dialog
+      if (mounted) {
+        showDialog(
+          context: context,
+          barrierDismissible: false,
+          builder: (context) => const AlertDialog(
+            content: Row(
+              children: [
+                CircularProgressIndicator(),
+                SizedBox(width: 16),
+                Text('Performing smart sync...'),
+              ],
+            ),
+          ),
+        );
+      }
+
+      final cloudSync = ref.read(cloudSyncManagerProvider);
+      final result = await cloudSync.performIntelligentSync();
+
+      if (mounted) {
+        Navigator.of(context).pop(); // Close loading dialog
+
+        if (result.success) {
+          if (result.requiresUserAction && result.downloadedBackupPath != null) {
+            // Show dialog asking if user wants to restore the newer backup
+            final shouldRestore = await showDialog<bool>(
+              context: context,
+              builder: (context) => AlertDialog(
+                title: const Text('Newer Backup Available'),
+                content: const Text('A newer backup was found in the cloud. Would you like to restore it? This will replace your current data.'),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.of(context).pop(false),
+                    child: const Text('Keep Local Data'),
+                  ),
+                  FilledButton(
+                    onPressed: () => Navigator.of(context).pop(true),
+                    child: const Text('Restore Cloud Data'),
+                  ),
+                ],
+              ),
+            );
+
+            if (shouldRestore == true && mounted) {
+              // Restore the downloaded backup
+              ref.read(doRestoreProvider(path: result.downloadedBackupPath!, context: context));
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('✅ Backup restored successfully!'),
+                  backgroundColor: Colors.green,
+                ),
+              );
+            }
+          } else {
+            // Show success message
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('✅ ${result.message ?? "Smart sync completed successfully!"}'),
+                backgroundColor: Colors.green,
+              ),
+            );
+          }
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('❌ ${result.message ?? "Smart sync failed"}')),
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        Navigator.of(context).pop(); // Close loading dialog if open
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to perform smart sync: $e')),
+        );
+      }
+    }
+  }
+
+  Future<void> _showCloudBackups() async {
+    if (_selectedProvider == null) return;
+
+    try {
+      final cloudSync = ref.read(cloudSyncManagerProvider);
+      final service = cloudSync.getService(_selectedProvider!);
+
+      if (service == null) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Cloud service not available')),
+          );
+        }
+        return;
+      }
+
+      // Show loading dialog
+      if (mounted) {
+        showDialog(
+          context: context,
+          barrierDismissible: false,
+          builder: (context) => const AlertDialog(
+            content: Row(
+              children: [
+                CircularProgressIndicator(),
+                SizedBox(width: 16),
+                Text('Loading backups...'),
+              ],
+            ),
+          ),
+        );
+      }
+
+      final backups = await service.listBackups();
+
+      if (mounted) {
+        Navigator.of(context).pop(); // Close loading dialog
+
+        showDialog(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: Text('${service.serviceName} Backups'),
+            content: SizedBox(
+              width: double.maxFinite,
+              child: backups.isEmpty
+                  ? const Text('No backups found in the cloud.')
+                  : ListView.builder(
+                      shrinkWrap: true,
+                      itemCount: backups.length,
+                      itemBuilder: (context, index) {
+                        final backup = backups[index];
+                        return ListTile(
+                          leading: const Icon(Icons.backup),
+                          title: Text(backup.name),
+                          subtitle: Text(
+                            'Size: ${(backup.sizeInBytes / 1024 / 1024).toStringAsFixed(2)} MB\n'
+                            'Created: ${backup.createdAt.toLocal().toString().split('.')[0]}',
+                          ),
+                          isThreeLine: true,
+                        );
+                      },
+                    ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(),
+                child: const Text('Close'),
+              ),
+            ],
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        Navigator.of(context).pop(); // Close loading dialog if open
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to load backups: $e')),
+        );
+      }
+    }
+  }
+
   Widget _buildCloudOption(
     BuildContext context, {
     required IconData icon,
     required String title,
     required String subtitle,
     required bool enabled,
+    required bool isSelected,
     required VoidCallback onTap,
   }) {
     final theme = Theme.of(context);
@@ -376,32 +1071,65 @@ class _CreateBackupState extends ConsumerState<CreateBackup> {
     return Opacity(
       opacity: enabled ? 1.0 : 0.5,
       child: Material(
-        color: isDark
-            ? Colors.grey.shade800
-            : Colors.grey.shade100,
+        color: isSelected
+            ? theme.primaryColor.withValues(alpha: 0.1)
+            : isDark
+                ? Colors.grey.shade800
+                : Colors.grey.shade100,
         borderRadius: BorderRadius.circular(12),
         child: InkWell(
           onTap: enabled ? onTap : null,
           borderRadius: BorderRadius.circular(12),
           child: Container(
             padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                color: isSelected
+                    ? theme.primaryColor
+                    : Colors.transparent,
+                width: 2,
+              ),
+            ),
             child: Column(
               children: [
-                Icon(
-                  icon,
-                  size: 32,
-                  color: enabled
-                      ? theme.primaryColor
-                      : theme.disabledColor,
+                Stack(
+                  children: [
+                    Icon(
+                      icon,
+                      size: 32,
+                      color: enabled
+                          ? (isSelected ? theme.primaryColor : theme.iconTheme.color)
+                          : theme.disabledColor,
+                    ),
+                    if (isSelected)
+                      Positioned(
+                        right: -4,
+                        top: -4,
+                        child: Container(
+                          width: 12,
+                          height: 12,
+                          decoration: BoxDecoration(
+                            color: theme.primaryColor,
+                            shape: BoxShape.circle,
+                          ),
+                          child: const Icon(
+                            Icons.check,
+                            size: 8,
+                            color: Colors.white,
+                          ),
+                        ),
+                      ),
+                  ],
                 ),
                 const SizedBox(height: 8),
                 Text(
                   title,
                   style: TextStyle(
-                    fontWeight: FontWeight.w500,
+                    fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
                     fontSize: 14,
                     color: enabled
-                        ? theme.textTheme.bodyLarge?.color
+                        ? (isSelected ? theme.primaryColor : theme.textTheme.bodyLarge?.color)
                         : theme.disabledColor,
                   ),
                 ),
@@ -409,7 +1137,7 @@ class _CreateBackupState extends ConsumerState<CreateBackup> {
                   subtitle,
                   style: TextStyle(
                     fontSize: 12,
-                    color: theme.hintColor,
+                    color: isSelected ? theme.primaryColor.withValues(alpha: 0.7) : theme.hintColor,
                   ),
                 ),
               ],

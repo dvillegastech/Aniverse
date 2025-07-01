@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'package:bot_toast/bot_toast.dart';
 import 'package:flutter/foundation.dart';
@@ -51,7 +52,72 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter/cupertino.dart';
 part 'router.g.dart';
 
+// Custom NavigatorObserver that safely handles BotToast
+class SafeBotToastNavigatorObserver extends NavigatorObserver {
+  final BotToastNavigatorObserver _botToastObserver = BotToastNavigatorObserver();
+  bool _isDisposed = false;
+
+  @override
+  void didPush(Route<dynamic> route, Route<dynamic>? previousRoute) {
+    if (!_isDisposed) {
+      try {
+        _botToastObserver.didPush(route, previousRoute);
+      } catch (e) {
+        debugPrint('Error in BotToast didPush: $e');
+      }
+    }
+  }
+
+  @override
+  void didPop(Route<dynamic> route, Route<dynamic>? previousRoute) {
+    if (!_isDisposed) {
+      try {
+        _botToastObserver.didPop(route, previousRoute);
+      } catch (e) {
+        debugPrint('Error in BotToast didPop: $e');
+      }
+    }
+  }
+
+  @override
+  void didRemove(Route<dynamic> route, Route<dynamic>? previousRoute) {
+    if (!_isDisposed) {
+      try {
+        _botToastObserver.didRemove(route, previousRoute);
+      } catch (e) {
+        debugPrint('Error in BotToast didRemove: $e');
+      }
+    }
+  }
+
+  @override
+  void didReplace({Route<dynamic>? newRoute, Route<dynamic>? oldRoute}) {
+    if (!_isDisposed) {
+      try {
+        _botToastObserver.didReplace(newRoute: newRoute, oldRoute: oldRoute);
+      } catch (e) {
+        debugPrint('Error in BotToast didReplace: $e');
+      }
+    }
+  }
+
+  void dispose() {
+    _isDisposed = true;
+  }
+}
+
 final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
+final SafeBotToastNavigatorObserver safeBotToastObserver = SafeBotToastNavigatorObserver();
+
+// Function to dispose the observer safely
+void disposeSafeBotToastObserver() {
+  try {
+    safeBotToastObserver.dispose();
+  } catch (e) {
+    debugPrint('Error disposing SafeBotToastNavigatorObserver: $e');
+  }
+}
+
 @riverpod
 GoRouter router(Ref ref) {
   final router = RouterNotifier();
@@ -62,7 +128,7 @@ GoRouter router(Ref ref) {
       .first;
 
   return GoRouter(
-    observers: [BotToastNavigatorObserver()],
+    observers: [safeBotToastObserver],
     initialLocation: initLocation,
     debugLogDiagnostics: kDebugMode,
     refreshListenable: router,
@@ -75,36 +141,84 @@ GoRouter router(Ref ref) {
 @riverpod
 class RouterCurrentLocationState extends _$RouterCurrentLocationState {
   bool _didSubscribe = false;
+  bool _isDisposed = false;
+  VoidCallback? _routerListener;
+
   @override
   String? build() {
+    // Set up disposal listener
+    ref.onDispose(() {
+      _isDisposed = true;
+      // Remove the router listener when disposing
+      if (_routerListener != null) {
+        try {
+          final router = ref.read(routerProvider);
+          router.routerDelegate.removeListener(_routerListener!);
+        } catch (e) {
+          // Ignore errors during disposal
+          debugPrint('Error removing router listener during disposal: $e');
+        }
+        _routerListener = null;
+      }
+    });
+
     // Delay listener‐registration until after the first frame.
-    if (!_didSubscribe) {
+    if (!_didSubscribe && !_isDisposed) {
       _didSubscribe = true;
       // Schedule the registration to run after the first build/frame:
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        _listener();
+        if (!_isDisposed) {
+          _setupListener();
+        }
       });
     }
     return null;
   }
 
-  void _listener() {
-    final router = ref.read(routerProvider);
-    router.routerDelegate.addListener(() {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        final RouteMatchList matches =
-            router.routerDelegate.currentConfiguration;
-        final RouteMatch lastMatch = matches.last;
-        final RouteMatchList matchList = lastMatch is ImperativeRouteMatch
-            ? lastMatch.matches
-            : matches;
-        state = matchList.uri.toString();
-      });
-    });
+  void _setupListener() {
+    if (_isDisposed) return;
+
+    try {
+      final router = ref.read(routerProvider);
+
+      // Create the listener function
+      _routerListener = () {
+        if (_isDisposed) return;
+
+        // Use a microtask instead of addPostFrameCallback to avoid timing issues
+        scheduleMicrotask(() {
+          if (_isDisposed) return;
+
+          try {
+            final RouteMatchList matches =
+                router.routerDelegate.currentConfiguration;
+            final RouteMatch lastMatch = matches.last;
+            final RouteMatchList matchList = lastMatch is ImperativeRouteMatch
+                ? lastMatch.matches
+                : matches;
+            state = matchList.uri.toString();
+          } catch (e) {
+            // Ignore errors during disposal or navigation state changes
+            if (!_isDisposed) {
+              debugPrint('Router listener error: $e');
+            }
+          }
+        });
+      };
+
+      // Add the listener
+      router.routerDelegate.addListener(_routerListener!);
+    } catch (e) {
+      if (!_isDisposed) {
+        debugPrint('Error setting up router listener: $e');
+      }
+    }
   }
 
   void refresh() {
-    _listener();
+    if (!_isDisposed) {
+      _setupListener();
+    }
   }
 }
 

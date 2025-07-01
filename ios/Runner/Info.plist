@@ -64,6 +64,20 @@
 	<true/>
 	<key>FlutterDeepLinkingEnabled</key>
 	<false/>
+    <key>NSUbiquitousContainers</key>
+    <dict>
+        <key>iCloud.com.dvillegas.mangayomi</key>
+        <dict>
+            <key>NSUbiquitousContainerIsDocumentScopePublic</key>
+            <true/>
+            <key>NSUbiquitousContainerName</key>
+            <string>Aniverse</string>
+            <key>NSUbiquitousContainerSupportedFolderLevels</key>
+            <string>Any</string>
+        </dict>
+    </dict>
+	<key>GIDClientID</key>
+	<string>237761209275-312lgtievc5q8m3b92o7ogu2llu7pcib.apps.googleusercontent.com</string>
 	<key>CFBundleURLTypes</key>
     <array>
         <dict>
@@ -72,6 +86,14 @@
             <key>CFBundleURLSchemes</key>
             <array>
                 <string>mangayomi</string>
+            </array>
+        </dict>
+        <dict>
+            <key>CFBundleURLName</key>
+            <string>google</string>
+            <key>CFBundleURLSchemes</key>
+            <array>
+                <string>com.googleusercontent.apps.237761209275-312lgtievc5q8m3b92o7ogu2llu7pcib</string>
             </array>
         </dict>
     </array>

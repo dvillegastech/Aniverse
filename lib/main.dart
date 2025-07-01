@@ -21,21 +21,24 @@ import 'package:mangayomi/modules/more/data_and_storage/providers/storage_usage.
 import 'package:mangayomi/modules/more/settings/browse/providers/browse_state_provider.dart';
 import 'package:mangayomi/providers/l10n_providers.dart';
 import 'package:mangayomi/providers/storage_provider.dart';
-import 'package:mangayomi/router/router.dart';
+import 'package:mangayomi/router/router.dart' show routerProvider, routerCurrentLocationStateProvider, navigatorKey, disposeSafeBotToastObserver;
 import 'package:mangayomi/modules/more/settings/appearance/providers/theme_mode_state_provider.dart';
 import 'package:mangayomi/l10n/generated/app_localizations.dart';
 import 'package:mangayomi/services/http/m_client.dart';
 import 'package:mangayomi/src/rust/frb_generated.dart';
 import 'package:mangayomi/utils/url_protocol/api.dart';
 import 'package:mangayomi/modules/more/settings/appearance/providers/theme_provider.dart';
+import 'package:mangayomi/services/cloud_backup/cloud_sync_manager.dart';
 import 'package:mangayomi/modules/library/providers/file_scanner.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:window_manager/window_manager.dart';
 import 'package:path/path.dart' as p;
 
+
 late Isar isar;
 WebViewEnvironment? webViewEnvironment;
+
 void main(List<String> args) async {
   WidgetsFlutterBinding.ensureInitialized();
   if (Platform.isLinux && runWebViewTitleBarWidget(args)) return;
@@ -78,6 +81,9 @@ class MyApp extends ConsumerStatefulWidget {
   ConsumerState<MyApp> createState() => _MyAppState();
 }
 
+// Provider to track if cloud backup has been checked
+final hasCheckedCloudBackupProvider = StateProvider<bool>((ref) => false);
+
 class _MyAppState extends ConsumerState<MyApp> {
   late AppLinks _appLinks;
   StreamSubscription<Uri>? _linkSubscription;
@@ -90,13 +96,58 @@ class _MyAppState extends ConsumerState<MyApp> {
     _initDeepLinks();
     unawaited(ref.read(scanLocalLibraryProvider.future));
 
-    WidgetsBinding.instance.addPostFrameCallback((_) {
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      // Check if widget is still mounted before proceeding
+      if (!mounted) return;
+
       if (ref.read(clearChapterCacheOnAppLaunchStateProvider)) {
         ref
             .read(totalChapterCacheSizeStateProvider.notifier)
             .clearCache(showToast: false);
       }
+
+      // Mark cloud backup as checked to prevent automatic initialization
+      // Cloud backup will now only work when manually triggered by the user
+      ref.read(hasCheckedCloudBackupProvider.notifier).state = true;
+
+      // Check for newer backups in the cloud (non-blocking)
+      _checkForNewerBackupsOnStartup();
     });
+  }
+
+  Future<void> _checkForNewerBackupsOnStartup() async {
+    try {
+      // Wait a bit to let the app fully initialize
+      await Future.delayed(const Duration(seconds: 3));
+
+      if (!mounted) return;
+
+      final cloudSync = ref.read(cloudSyncManagerProvider);
+      final newerBackup = await cloudSync.checkForNewerBackup();
+
+      if (newerBackup != null && mounted) {
+        // Show a non-intrusive notification about newer backup
+        BotToast.showNotification(
+          animationDuration: const Duration(milliseconds: 200),
+          animationReverseDuration: const Duration(milliseconds: 200),
+          duration: const Duration(seconds: 8),
+          backButtonBehavior: BackButtonBehavior.none,
+          leading: (_) => const Icon(Icons.cloud_download, color: Colors.blue),
+          title: (_) => const Text('Newer Backup Available', style: TextStyle(fontWeight: FontWeight.bold)),
+          subtitle: (_) => Text('Found: ${newerBackup.name}\nTap to restore or go to Settings > Data & Storage'),
+          enableSlideOff: true,
+          onlyOne: true,
+          crossPage: true,
+          onTap: () {
+            // Navigate to backup page
+            ref.read(routerProvider).push('/dataAndStorage/createBackup');
+          },
+        );
+      }
+    } catch (e) {
+      // Silently fail - don't show errors on startup
+      debugPrint('Failed to check for newer backups on startup: $e');
+    }
   }
 
   @override
@@ -117,18 +168,42 @@ class _MyAppState extends ConsumerState<MyApp> {
       locale: locale,
       localizationsDelegates: AppLocalizations.localizationsDelegates,
       supportedLocales: AppLocalizations.supportedLocales,
-      builder: BotToastInit(),
+      builder: (context, child) {
+        return BotToastInit()(context, child);
+      },
       routeInformationParser: router.routeInformationParser,
       routerDelegate: router.routerDelegate,
       routeInformationProvider: router.routeInformationProvider,
-      title: 'MangaYomi',
+      title: 'Aniverse',
       scrollBehavior: AllowScrollBehavior(),
     );
   }
 
   @override
   void dispose() {
+    // Clean up BotToast first to prevent Navigator access during disposal
+    try {
+      BotToast.cleanAll();
+    } catch (e) {
+      debugPrint('Error cleaning BotToast: $e');
+    }
+
+    // Dispose the safe BotToast observer
+    disposeSafeBotToastObserver();
+
+    // Cancel deep link subscription
     _linkSubscription?.cancel();
+    _linkSubscription = null;
+
+    // Dispose cloud sync manager before calling super.dispose()
+    // to ensure all timers and operations are stopped
+    try {
+      final cloudSync = ref.read(cloudSyncManagerProvider);
+      cloudSync.dispose();
+    } catch (e) {
+      debugPrint('Error disposing cloud sync: $e');
+    }
+
     super.dispose();
   }
 

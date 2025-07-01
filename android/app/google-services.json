@@ -1,0 +1,45 @@
+{
+  "project_info": {
+    "project_number": "237761209275",
+    "project_id": "aniverse-464608"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:237761209275:android:mangayomi",
+        "android_client_info": {
+          "package_name": "com.dvillegas.mangayomi"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "237761209275-tpuv0spk05fu5nm74a1c70dcm433s3l3.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.dvillegas.mangayomi",
+            "certificate_hash": "05b23e0d7592ceb81cb3b39ad691ee03afd5e431"
+          }
+        },
+        {
+          "client_id": "237761209275-tpuv0spk05fu5nm74a1c70dcm433s3l3.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.dvillegas.mangayomi",
+            "certificate_hash": "17981fa32283ab3609f71a57cdc4b76f435b0607"
+          }
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "237761209275-312lgtievc5q8m3b92o7ogu2llu7pcib.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
