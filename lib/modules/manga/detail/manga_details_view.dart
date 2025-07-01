@@ -11,7 +11,7 @@ import 'package:mangayomi/models/manga.dart';
 import 'package:mangayomi/modules/more/settings/sync/providers/sync_providers.dart';
 import 'package:mangayomi/modules/widgets/category_selection_dialog.dart';
 import 'package:mangayomi/providers/l10n_providers.dart';
-import 'package:mangayomi/utils/extensions/build_context_extensions.dart';
+
 import 'package:mangayomi/utils/constant.dart';
 import 'package:mangayomi/modules/manga/detail/manga_detail_view.dart';
 import 'package:mangayomi/modules/manga/detail/providers/state_providers.dart';
@@ -194,13 +194,10 @@ class _MangaDetailsViewState extends ConsumerState<MangaDetailsView> {
                 ],
               ),
         action: widget.manga.favorite!
-            ? SizedBox(
-                child: ElevatedButton(
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Theme.of(context).scaffoldBackgroundColor,
-                    elevation: 0,
-                  ),
-                  onPressed: () {
+            ? Material(
+                color: Colors.transparent,
+                child: InkWell(
+                  onTap: () {
                     final model = widget.manga;
                     isar.writeTxnSync(() {
                       model.favorite = false;
@@ -216,79 +213,115 @@ class _MangaDetailsViewState extends ConsumerState<MangaDetailsView> {
                           );
                     });
                   },
-                  child: Column(
-                    children: [
-                      const Icon(Icons.favorite, size: 20),
-                      const SizedBox(height: 4),
-                      Text(
-                        l10n.in_library,
-                        style: const TextStyle(fontSize: 11),
-                        textAlign: TextAlign.center,
-                      ),
-                    ],
+                  borderRadius: BorderRadius.circular(16),
+                  child: SizedBox(
+                    height: 60,
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(6),
+                          decoration: BoxDecoration(
+                            color: Colors.red.withValues(alpha: 0.1),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: const Icon(
+                            Icons.favorite_rounded,
+                            size: 18,
+                            color: Colors.red,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          l10n.in_library,
+                          style: const TextStyle(
+                            fontSize: 10,
+                            fontWeight: FontWeight.w500,
+                            color: Colors.red,
+                          ),
+                          textAlign: TextAlign.center,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ],
+                    ),
                   ),
                 ),
               )
-            : ElevatedButton(
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Theme.of(context).scaffoldBackgroundColor,
-                  elevation: 0,
-                ),
-                onPressed: () {
-                  final model = widget.manga;
-                  final checkCategoryList = isar.categorys
-                      .filter()
-                      .idIsNotNull()
-                      .and()
-                      .forItemTypeEqualTo(model.itemType)
-                      .isNotEmptySync();
-                  if (checkCategoryList) {
-                    showCategorySelectionDialog(
-                      context: context,
-                      ref: ref,
-                      itemType: model.itemType,
-                      singleManga: model,
-                    );
-                  } else {
-                    isar.writeTxnSync(() {
-                      model.favorite = true;
-                      model.dateAdded = DateTime.now().millisecondsSinceEpoch;
-                      isar.mangas.putSync(model);
-                      final sync = ref.read(
-                        synchingProvider(syncId: 1).notifier,
+            : Material(
+                color: Colors.transparent,
+                child: InkWell(
+                  onTap: () {
+                    final model = widget.manga;
+                    final checkCategoryList = isar.categorys
+                        .filter()
+                        .idIsNotNull()
+                        .and()
+                        .forItemTypeEqualTo(model.itemType)
+                        .isNotEmptySync();
+                    if (checkCategoryList) {
+                      showCategorySelectionDialog(
+                        context: context,
+                        ref: ref,
+                        itemType: model.itemType,
+                        singleManga: model,
                       );
-                      sync.addChangedPart(
-                        ActionType.addItem,
-                        null,
-                        model.toJson(),
-                        false,
-                      );
-                      sync.addChangedPart(
-                        ActionType.updateItem,
-                        model.id,
-                        model.toJson(),
-                        false,
-                      );
-                    });
-                  }
-                },
-                child: Column(
-                  children: [
-                    Icon(
-                      Icons.favorite_border_rounded,
-                      size: 20,
-                      color: context.secondaryColor,
+                    } else {
+                      isar.writeTxnSync(() {
+                        model.favorite = true;
+                        model.dateAdded = DateTime.now().millisecondsSinceEpoch;
+                        isar.mangas.putSync(model);
+                        final sync = ref.read(
+                          synchingProvider(syncId: 1).notifier,
+                        );
+                        sync.addChangedPart(
+                          ActionType.addItem,
+                          null,
+                          model.toJson(),
+                          false,
+                        );
+                        sync.addChangedPart(
+                          ActionType.updateItem,
+                          model.id,
+                          model.toJson(),
+                          false,
+                        );
+                      });
+                    }
+                  },
+                  borderRadius: BorderRadius.circular(16),
+                  child: SizedBox(
+                    height: 60,
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(6),
+                          decoration: BoxDecoration(
+                            color: Theme.of(context).primaryColor.withValues(alpha: 0.1),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Icon(
+                            Icons.favorite_border_rounded,
+                            size: 18,
+                            color: Theme.of(context).primaryColor,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          l10n.add_to_library,
+                          style: TextStyle(
+                            color: Theme.of(context).primaryColor,
+                            fontSize: 10,
+                            fontWeight: FontWeight.w500,
+                          ),
+                          textAlign: TextAlign.center,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ],
                     ),
-                    const SizedBox(height: 4),
-                    Text(
-                      l10n.add_to_library,
-                      style: TextStyle(
-                        color: context.secondaryColor,
-                        fontSize: 11,
-                      ),
-                      textAlign: TextAlign.center,
-                    ),
-                  ],
+                  ),
                 ),
               ),
         manga: widget.manga,
